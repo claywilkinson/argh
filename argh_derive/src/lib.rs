@@ -322,9 +322,17 @@ fn impl_from_args_struct_from_args<'a>(
         quote_spanned! { impl_span => None }
     };
 
+    /*
+      left: `"{\n\"usage\": \"test_arg_0 [-f] [--really-really-really-long-name-for-pat] -s <scribble> [-v] <command> [<args>]\",\n\"description\": \"Destroy the contents of <file> with a specific \\\"method of destruction\\\".\",\n\"options\": [{\"short\": \"f\", \"long\": \"--force\", \"description\": \"force, ignore minor errors. This description is so long that it wraps to the next line.\"},\n    {\"short\": \"\", \"long\": \"--really-really-really-long-name-for-pat\", \"description\": \"documentation\"},\n    {\"short\": \"s\", \"long\": \"--scribble\", \"description\": \"write <scribble> repeatedly\"},\n    {\"short\": \"v\", \"long\": \"--verbose\", \"description\": \"say more. Defaults to $BLAST_VERBOSE.\"},\n    {\"short\": \"\", \"long\": \"--help\", \"description\": \"display usage information\"},\n    {\"short\": \"\", \"long\": \"--help-json\", \"description\": \"display usage information JSON encoded\"}],\n\"positional\": [],\n\"examples\": \"Scribble 'abc' and then run |grind|.\\n$ test_arg_0 -s 'abc' grind old.txt taxes.cp\",\n\"notes\": \"Use `test_arg_0 help <command>` for details on [<args>] for a subcommand.\",\n\"error_codes\": [{\"name\": \"2\", \"description\": \"The blade is too dull.\"},\n    {\"name\": \"3\", \"description\": \"Out of fuel.\"}],\n\"subcommands\": [{\"name\": \"blow-up\", \"description\": \"explosively separate\"},\n    {\"name\": \"grind\", \"description\": \"make smaller by many small cuts\"}]\n}\n"`,
+     right: `"{\n\"usage\": \"test_arg_0 [-f] [--really-really-really-long-name-for-pat] -s <scribble> [-v] <command> [<args>]\",\n\"description\": \"Destroy the contents of <file> with a specific \\\"method of destruction\\\".\",\n\"options\": [{\"short\": \"f\", \"long\": \"--force\", \"description\": \"force, ignore minor errors. This description is so long that it wraps to the next line.\"},\n    {\"short\": \"\", \"long\": \"--really-really-really-long-name-for-pat\", \"description\": \"documentation\"},\n    {\"short\": \"s\", \"long\": \"--scribble\", \"description\": \"write <scribble> repeatedly\"},\n    {\"short\": \"v\", \"long\": \"--verbose\", \"description\": \"say more. Defaults to $BLAST_VERBOSE.\"},\n    {\"short\": \"\", \"long\": \"--help\", \"description\": \"display usage information\"},\n    {\"short\": \"\", \"long\": \"--help-json\", \"description\": \"display usage information encoded in JSON\"}],\n\"positional\": [],\n\"examples\": \"Scribble 'abc' and then run |grind|.\\n$ test_arg_0 -s 'abc' grind old.txt taxes.cp\",\n\"notes\": \"Use `test_arg_0 help <command>` for details on [<args>] for a subcommand.\",\n\"error_codes\": [{\"name\": \"2\", \"description\": \"The blade is too dull.\"},\n    {\"name\": \"3\", \"description\": \"Out of fuel.\"}],\n\"subcommands\": [{\"name\": \"blow-up\", \"description\": \"explosively separate\"},\n    {\"name\": \"grind\", \"description\": \"make smaller by many small cuts\"}]\n}
+
+    */
+
     // Identifier referring to a value containing the name of the current command as an `&[&str]`.
     let cmd_name_str_array_ident = syn::Ident::new("__cmd_name", impl_span);
-    let help = help::help(errors, cmd_name_str_array_ident, type_attrs, &fields, subcommand);
+    let help = help::help(errors, &cmd_name_str_array_ident, type_attrs, &fields, subcommand);
+    let help_json3 =
+        help::help_json(errors, &cmd_name_str_array_ident, type_attrs, &fields, subcommand);
 
     let method_impl = quote_spanned! { impl_span =>
         fn from_args(__cmd_name: &[&str], __args: &[&str])
@@ -352,6 +360,7 @@ fn impl_from_args_struct_from_args<'a>(
                 },
                 #parse_subcommands,
                 &|| #help,
+                &|| #help_json3
             )?;
 
             let mut #missing_requirements_ident = argh::MissingRequirements::default();
@@ -436,7 +445,9 @@ fn impl_from_args_struct_redact_arg_values<'a>(
 
     // Identifier referring to a value containing the name of the current command as an `&[&str]`.
     let cmd_name_str_array_ident = syn::Ident::new("__cmd_name", impl_span);
-    let help = help::help(errors, cmd_name_str_array_ident, type_attrs, &fields, subcommand);
+    let help = help::help(errors, &cmd_name_str_array_ident, type_attrs, &fields, subcommand);
+    let help_json2 =
+        help::help_json(errors, &cmd_name_str_array_ident, type_attrs, &fields, subcommand);
 
     let method_impl = quote_spanned! { impl_span =>
         fn redact_arg_values(__cmd_name: &[&str], __args: &[&str]) -> std::result::Result<Vec<String>, argh::EarlyExit> {
@@ -462,6 +473,7 @@ fn impl_from_args_struct_redact_arg_values<'a>(
                 },
                 #redact_subcommands,
                 &|| #help,
+                &|| #help_json2
             )?;
 
             let mut #missing_requirements_ident = argh::MissingRequirements::default();
