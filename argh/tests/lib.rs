@@ -5,8 +5,6 @@
 
 use {argh::FromArgs, std::fmt::Debug};
 
-mod help_json_tests;
-
 #[test]
 fn basic_example() {
     #[derive(FromArgs, PartialEq, Debug)]
@@ -110,7 +108,6 @@ Options:
   --s               a switch with a description that is spread across a number
                     of lines of comments.
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###,
     );
 }
@@ -248,7 +245,6 @@ Woot
 Options:
   -n, --n           fooey
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###,
         );
     }
@@ -271,7 +267,6 @@ Woot
 Options:
   --option-name     fooey
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###,
         );
     }
@@ -310,7 +305,6 @@ Positional Arguments:
 
 Options:
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###,
         );
     }
@@ -700,7 +694,6 @@ A type for testing `--help`/`help`
 
 Options:
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 
 Commands:
   first             First subcommmand for testing `help`.
@@ -712,7 +705,6 @@ First subcommmand for testing `help`.
 
 Options:
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 
 Commands:
   second            Second subcommand for testing `help`.
@@ -724,7 +716,6 @@ Second subcommand for testing `help`.
 
 Options:
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###;
 
     #[test]
@@ -767,7 +758,7 @@ Options:
 
     #[derive(FromArgs, PartialEq, Debug)]
     #[argh(
-        description = "Destroy the contents of <file> with a specific \"method of destruction\".",
+        description = "Destroy the contents of <file>.",
         example = "Scribble 'abc' and then run |grind|.\n$ {command_name} -s 'abc' grind old.txt taxes.cp",
         note = "Use `{command_name} help <command>` for details on [<args>] for a subcommand.",
         error_code(2, "The blade is too dull."),
@@ -860,7 +851,7 @@ Options:
         assert_help_string::<HelpExample>(
             r###"Usage: test_arg_0 [-f] [--really-really-really-long-name-for-pat] -s <scribble> [-v] <command> [<args>]
 
-Destroy the contents of <file> with a specific "method of destruction".
+Destroy the contents of <file>.
 
 Options:
   -f, --force       force, ignore minor errors. This description is so long that
@@ -870,7 +861,6 @@ Options:
   -s, --scribble    write <scribble> repeatedly
   -v, --verbose     say more. Defaults to $BLAST_VERBOSE.
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 
 Commands:
   blow-up           explosively separate
@@ -910,7 +900,6 @@ Positional Arguments:
 
 Options:
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###,
         );
     }
@@ -1274,7 +1263,6 @@ Woot
 Options:
   -n, --n           fooey
   --help            display usage information
-  --help-json       display usage information encoded in JSON
 "###
             .to_string(),
             status: Ok(()),
