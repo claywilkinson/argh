@@ -26,6 +26,7 @@ pub(crate) fn help(
     fields: &[StructField<'_>],
     subcommand: Option<&StructField<'_>>,
 ) -> TokenStream {
+    #![allow(clippy::format_push_string)]
     let mut format_lit = "Usage: {command_name}".to_string();
 
     let positional = fields.iter().filter(|f| f.kind == FieldKind::Positional);
@@ -85,6 +86,12 @@ pub(crate) fn help(
         subcommand_calculation = quote! {
             let subcommands = argh::print_subcommands(
                 <#subcommand_ty as argh::SubCommands>::COMMANDS
+                    .iter()
+                    .copied()
+                    .chain(
+                        <#subcommand_ty as argh::SubCommands>::dynamic_commands()
+                            .iter()
+                            .copied())
             );
         };
     } else {
@@ -219,7 +226,7 @@ fn positional_description(out: &mut String, field: &StructField<'_>) {
 }
 
 fn positional_description_format(out: &mut String, name: &str, description: &str) {
-    let info = argh_shared::CommandInfo { name: &*name, description };
+    let info = argh_shared::CommandInfo { name, description };
     argh_shared::write_description(out, &info);
 }
 
@@ -249,6 +256,6 @@ fn option_description_format(
     }
     name.push_str(long_with_leading_dashes);
 
-    let info = argh_shared::CommandInfo { name: &*name, description };
+    let info = argh_shared::CommandInfo { name: &name, description };
     argh_shared::write_description(out, &info);
 }
