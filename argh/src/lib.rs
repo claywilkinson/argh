@@ -127,6 +127,34 @@
 //! The last positional argument may include a default, or be wrapped in
 //! `Option` or `Vec` to indicate an optional or repeating positional argument.
 //!
+//! If your final positional argument has the `greedy` option on it, it will consume
+//! any arguments after it as if a `--` were placed before the first argument to
+//! match the greedy positional:
+//!
+//! ```rust
+//! use argh::FromArgs;
+//! #[derive(FromArgs, PartialEq, Debug)]
+//! /// A command with a greedy positional argument at the end.
+//! struct WithGreedyPositional {
+//!     /// some stuff
+//!     #[argh(option)]
+//!     stuff: Option<String>,
+//!     #[argh(positional, greedy)]
+//!     all_the_rest: Vec<String>,
+//! }
+//! ```
+//!
+//! Now if you pass `--stuff Something` after a positional argument, it will
+//! be consumed by `all_the_rest` instead of setting the `stuff` field.
+//!
+//! Note that `all_the_rest` won't be listed as a positional argument in the
+//! long text part of help output (and it will be listed at the end of the usage
+//! line as `[all_the_rest...]`), and it's up to the caller to append any
+//! extra help output for the meaning of the captured arguments. This is to
+//! enable situations where some amount of argument processing needs to happen
+//! before the rest of the arguments can be interpreted, and shouldn't be used
+//! for regular use as it might be confusing.
+//!
 //! Subcommands are also supported. To use a subcommand, declare a separate
 //! `FromArgs` type for each subcommand as well as an enum that cases
 //! over each command:
@@ -260,6 +288,29 @@
 //!         }
 //!         None
 //!     }
+//! }
+//! ```
+//!
+//! Programs that are run from an environment such as cargo may find it
+//! useful to have positional arguments present in the structure but
+//! omitted from the usage output. This can be accomplished by adding
+//! the `hidden_help` attribute to that argument:
+//!
+//! ```rust
+//! # use argh::FromArgs;
+//!
+//! #[derive(FromArgs)]
+//! /// Cargo arguments
+//! struct CargoArgs {
+//!     // Cargo puts the command name invoked into the first argument,
+//!     // so we don't want this argument to show up in the usage text.
+//!     #[argh(positional, hidden_help)]
+//!     command: String,
+//!     /// an option used for internal debugging
+//!     #[argh(option, hidden_help)]
+//!     internal_debugging: String,
+//!     #[argh(positional)]
+//!     real_first_arg: String,
 //! }
 //! ```
 
@@ -618,7 +669,19 @@ fn cmd<'a>(default: &'a str, path: &'a str) -> &'a str {
 /// was unsuccessful or if information like `--help` was requested. Error messages will be printed
 /// to stderr, and `--help` output to stdout.
 pub fn from_env<T: TopLevelCommand>() -> T {
-    let strings: Vec<String> = std::env::args().collect();
+    let strings: Vec<String> = std::env::args_os()
+        .map(|s| s.into_string())
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap_or_else(|arg| {
+            eprintln!("Invalid utf8: {}", arg.to_string_lossy());
+            std::process::exit(1)
+        });
+
+    if strings.is_empty() {
+        eprintln!("No program name, argv is empty");
+        std::process::exit(1)
+    }
+
     let cmd = cmd(&strings[0], &strings[0]);
     let strs: Vec<&str> = strings.iter().map(|s| s.as_str()).collect();
     T::from_args(&[cmd], &strs[1..]).unwrap_or_else(|early_exit| {
@@ -771,6 +834,16 @@ impl Flag for bool {
     }
 }
 
+impl Flag for Option<bool> {
+    fn default() -> Self {
+        None
+    }
+
+    fn set_flag(&mut self) {
+        *self = Some(true);
+    }
+}
+
 macro_rules! impl_flag_for_integers {
     ($($ty:ty,)*) => {
         $(
@@ -810,7 +883,7 @@ pub fn parse_struct_args(
     let mut positional_index = 0;
     let mut options_ended = false;
 
-    'parse_args: while let Some(&next_arg) = remaining_args.get(0) {
+    'parse_args: while let Some(&next_arg) = remaining_args.first() {
         remaining_args = &remaining_args[1..];
         if (next_arg == "--help" || next_arg == "help") && !options_ended {
             help = true;
@@ -839,7 +912,7 @@ pub fn parse_struct_args(
             }
         }
 
-        parse_positionals.parse(&mut positional_index, next_arg)?;
+        options_ended |= parse_positionals.parse(&mut positional_index, next_arg)?;
     }
 
     if help {
@@ -878,7 +951,7 @@ impl<'a> ParseStructOptions<'a> {
             ParseStructOption::Flag(ref mut b) => b.set_flag(arg),
             ParseStructOption::Value(ref mut pvs) => {
                 let value = remaining_args
-                    .get(0)
+                    .first()
                     .ok_or_else(|| ["No value provided for option '", arg, "'.\n"].concat())?;
                 *remaining_args = &remaining_args[1..];
                 pvs.fill_slot(arg, value).map_err(|s| {
@@ -910,25 +983,31 @@ pub enum ParseStructOption<'a> {
 pub struct ParseStructPositionals<'a> {
     pub positionals: &'a mut [ParseStructPositional<'a>],
     pub last_is_repeating: bool,
+    pub last_is_greedy: bool,
 }
 
 impl<'a> ParseStructPositionals<'a> {
     /// Parse the next positional argument.
     ///
     /// `arg`: the argument supplied by the user.
-    fn parse(&mut self, index: &mut usize, arg: &str) -> Result<(), EarlyExit> {
+    ///
+    /// Returns true if non-positional argument parsing should stop
+    /// after this one.
+    fn parse(&mut self, index: &mut usize, arg: &str) -> Result<bool, EarlyExit> {
         if *index < self.positionals.len() {
             self.positionals[*index].parse(arg)?;
 
-            // Don't increment position if we're at the last arg
-            // *and* the last arg is repeating.
-            let skip_increment = self.last_is_repeating && *index == self.positionals.len() - 1;
-
-            if !skip_increment {
+            if self.last_is_repeating && *index == self.positionals.len() - 1 {
+                // Don't increment position if we're at the last arg
+                // *and* the last arg is repeating. If it's also remainder,
+                // halt non-option processing after this.
+                Ok(self.last_is_greedy)
+            } else {
+                // If it is repeating, though, increment the index and continue
+                // processing options.
                 *index += 1;
+                Ok(false)
             }
-
-            Ok(())
         } else {
             Err(EarlyExit { output: unrecognized_arg(arg), status: Err(()) })
         }
@@ -977,6 +1056,7 @@ pub struct ParseStructSubCommand<'a> {
     pub dynamic_subcommands: &'a [&'static CommandInfo],
 
     // The function to parse the subcommand arguments.
+    #[allow(clippy::type_complexity)]
     pub parse_func: &'a mut dyn FnMut(&[&str], &[&str]) -> Result<(), EarlyExit>,
 }
 

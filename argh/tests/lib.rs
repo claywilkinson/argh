@@ -36,6 +36,34 @@ fn basic_example() {
 }
 
 #[test]
+fn generic_example() {
+    use std::fmt::Display;
+    use std::str::FromStr;
+
+    #[derive(FromArgs, PartialEq, Debug)]
+    /// Reach new heights.
+    struct GoUp<S: FromStr>
+    where
+        <S as FromStr>::Err: Display,
+    {
+        /// whether or not to jump
+        #[argh(switch, short = 'j')]
+        jump: bool,
+
+        /// how high to go
+        #[argh(option)]
+        height: usize,
+
+        /// an optional nickname for the pilot
+        #[argh(option)]
+        pilot_nickname: Option<S>,
+    }
+
+    let up = GoUp::<String>::from_args(&["cmdname"], &["--height", "5"]).expect("failed go_up");
+    assert_eq!(up, GoUp::<String> { jump: false, height: 5, pilot_nickname: None });
+}
+
+#[test]
 fn custom_from_str_example() {
     #[derive(FromArgs)]
     /// Goofy thing.
@@ -128,7 +156,7 @@ fn dynamic_subcommand_example() {
             let description = Self::commands().iter().find(|x| x.name == command_name)?.description;
             if args.len() > 1 {
                 Some(Err(argh::EarlyExit::from("Too many arguments".to_owned())))
-            } else if let Some(arg) = args.get(0) {
+            } else if let Some(arg) = args.first() {
                 Some(Ok(DynamicSubCommandImpl { got: format!("{} got {:?}", description, arg) }))
             } else {
                 Some(Err(argh::EarlyExit::from("Not enough arguments".to_owned())))
@@ -432,6 +460,90 @@ Options:
 
     #[derive(FromArgs, Debug, PartialEq)]
     /// Woot
+    struct LastRepeatingGreedy {
+        #[argh(positional)]
+        /// fooey
+        a: u32,
+        #[argh(switch)]
+        /// woo
+        b: bool,
+        #[argh(option)]
+        /// stuff
+        c: Option<String>,
+        #[argh(positional, greedy)]
+        /// fooey
+        d: Vec<String>,
+    }
+
+    #[test]
+    fn positional_greedy() {
+        assert_output(&["5"], LastRepeatingGreedy { a: 5, b: false, c: None, d: vec![] });
+        assert_output(
+            &["5", "foo"],
+            LastRepeatingGreedy { a: 5, b: false, c: None, d: vec!["foo".into()] },
+        );
+        assert_output(
+            &["5", "foo", "bar"],
+            LastRepeatingGreedy { a: 5, b: false, c: None, d: vec!["foo".into(), "bar".into()] },
+        );
+        assert_output(
+            &["5", "--b", "foo", "bar"],
+            LastRepeatingGreedy { a: 5, b: true, c: None, d: vec!["foo".into(), "bar".into()] },
+        );
+        assert_output(
+            &["5", "foo", "bar", "--b"],
+            LastRepeatingGreedy {
+                a: 5,
+                b: false,
+                c: None,
+                d: vec!["foo".into(), "bar".into(), "--b".into()],
+            },
+        );
+        assert_output(
+            &["5", "--c", "hi", "foo", "bar"],
+            LastRepeatingGreedy {
+                a: 5,
+                b: false,
+                c: Some("hi".into()),
+                d: vec!["foo".into(), "bar".into()],
+            },
+        );
+        assert_output(
+            &["5", "foo", "bar", "--c", "hi"],
+            LastRepeatingGreedy {
+                a: 5,
+                b: false,
+                c: None,
+                d: vec!["foo".into(), "bar".into(), "--c".into(), "hi".into()],
+            },
+        );
+        assert_output(
+            &["5", "foo", "bar", "--", "hi"],
+            LastRepeatingGreedy {
+                a: 5,
+                b: false,
+                c: None,
+                d: vec!["foo".into(), "bar".into(), "--".into(), "hi".into()],
+            },
+        );
+        assert_help_string::<LastRepeatingGreedy>(
+            r###"Usage: test_arg_0 <a> [--b] [--c <c>] [d...]
+
+Woot
+
+Positional Arguments:
+  a                 fooey
+
+Options:
+  --b               woo
+  --c               stuff
+  --help            display usage information
+"###,
+        );
+    }
+
+    #[derive(FromArgs, Debug, PartialEq)]
+    /// Woot
     struct LastOptional {
         #[argh(positional)]
         /// fooey
@@ -589,6 +701,26 @@ Required options not provided:
                 b: Subcommand { a: "b".into(), b: vec!["c".into()] },
                 c: vec!["2".into(), "3".into()],
             },
+        );
+    }
+
+    #[derive(FromArgs, Debug, PartialEq)]
+    /// Woot
+    struct Underscores {
+        #[argh(positional)]
+        /// fooey
+        a_: String,
+    }
+
+    #[test]
+    fn positional_name_with_underscores() {
+        assert_output(&["first"], Underscores { a_: "first".into() });
+
+        assert_error::<Underscores>(
+            &[],
+            r###"Required positional arguments not provided:
+    a
+"###,
         );
     }
 }
@@ -957,7 +1089,7 @@ Options:
                 None
             } else if args.len() > 1 {
                 Some(Err(argh::EarlyExit::from("Too many arguments".to_owned())))
-            } else if let Some(arg) = args.get(0) {
+            } else if let Some(arg) = args.first() {
                 Some(Ok(HelpExamplePlugin { got: format!("plugin got {:?}", arg) }))
             } else {
                 Some(Ok(HelpExamplePlugin { got: "plugin got no argument".to_owned() }))
@@ -1055,6 +1187,36 @@ Destroy the contents of <file>.
 
 Positional Arguments:
   name
+
+Options:
+  --help            display usage information
+"###,
+        );
+    }
+
+    #[test]
+    fn hidden_help_attribute() {
+        #[derive(FromArgs)]
+        /// Short description
+        struct Cmd {
+            /// this one should be hidden
+            #[argh(positional, hidden_help)]
+            _one: String,
+            #[argh(positional)]
+            /// this one is real
+            _two: String,
+            /// this one should be hidden
+            #[argh(option, hidden_help)]
+            _three: String,
+        }
+
+        assert_help_string::<Cmd>(
+            r###"Usage: test_arg_0 <two>
+
+Short description
+
+Positional Arguments:
+  two               this one is real
 
 Options:
   --help            display usage information

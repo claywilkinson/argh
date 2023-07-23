@@ -18,6 +18,8 @@ pub struct FieldAttrs {
     pub long: Option<syn::LitStr>,
     pub short: Option<syn::LitChar>,
     pub arg_name: Option<syn::LitStr>,
+    pub greedy: Option<syn::Path>,
+    pub hidden_help: bool,
 }
 
 /// The purpose of a particular field on a `#![derive(FromArgs)]` struct.
@@ -120,13 +122,17 @@ impl FieldAttrs {
                         FieldKind::Positional,
                         &mut this.field_type,
                     );
+                } else if name.is_ident("greedy") {
+                    this.greedy = Some(name.clone());
+                } else if name.is_ident("hidden_help") {
+                    this.hidden_help = true;
                 } else {
                     errors.err(
                         &meta,
                         concat!(
                             "Invalid field-level `argh` attribute\n",
-                            "Expected one of: `arg_name`, `default`, `description`, `from_str_fn`, `long`, ",
-                            "`option`, `short`, `subcommand`, `switch`",
+                            "Expected one of: `arg_name`, `default`, `description`, `from_str_fn`, `greedy`, ",
+                            "`long`, `option`, `short`, `subcommand`, `switch`, `hidden_help`",
                         ),
                     );
                 }
@@ -142,6 +148,16 @@ impl FieldAttrs {
                      or `#[argh(positional)]` fields",
                 ),
             }
+        }
+
+        match (&this.greedy, this.field_type.as_ref().map(|f| f.kind)) {
+            (Some(_), Some(FieldKind::Positional)) => {}
+            (Some(greedy), Some(_)) => errors.err(
+                &greedy,
+                "`greedy` may only be specified on `#[argh(positional)]` \
+                    fields",
+            ),
+            _ => {}
         }
 
         if let Some(d) = &this.description {
@@ -167,12 +183,7 @@ impl FieldAttrs {
         parse_attr_single_string(errors, m, "long", &mut self.long);
         let long = self.long.as_ref().unwrap();
         let value = long.value();
-        if !value.is_ascii() {
-            errors.err(long, "Long names must be ASCII");
-        }
-        if !value.chars().all(|c| c.is_lowercase() || c == '-' || c.is_ascii_digit()) {
-            errors.err(long, "Long names must be lowercase");
-        }
+        check_long_name(errors, long, &value);
     }
 
     fn parse_attr_short(&mut self, errors: &Errors, m: &syn::MetaNameValue) {
@@ -184,6 +195,15 @@ impl FieldAttrs {
                 errors.err(lit_char, "Short names must be ASCII");
             }
         }
+    }
+}
+
+pub(crate) fn check_long_name(errors: &Errors, spanned: &impl syn::spanned::Spanned, value: &str) {
+    if !value.is_ascii() {
+        errors.err(spanned, "Long names must be ASCII");
+    }
+    if !value.chars().all(|c| c.is_lowercase() || c == '-' || c.is_ascii_digit()) {
+        errors.err(spanned, "Long names must be lowercase");
     }
 }
 
